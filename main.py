@@ -44,7 +44,17 @@ DB_URI = required_env("DB_URI")
 DB_NAME = os.environ.get("DB_NAME", "beastxsavecontentbot").strip() or "beastxsavecontentbot"
 WAITING_TIME = int(os.environ.get("WAITING_TIME", "10"))
 ERROR_MESSAGE = str(os.environ.get("ERROR_MESSAGE", "True")).lower() in ("true", "1", "yes", "on")
+# Payment Configuration
+UPI_ID = os.environ.get("UPI_ID", "").strip()
+UPI_NAME = os.environ.get("UPI_NAME", "BankingTitanss").strip()
+UPDATE_CHANNEL = "@BankingTitanss"
 
+PAYMENT_PLANS = {
+    "plan_20": {"amount": 20, "days": 1},
+    "plan_30": {"amount": 30, "days": 2},
+    "plan_50": {"amount": 50, "days": 7},
+    "plan_120": {"amount": 120, "days": 30},
+}
 if not LOGIN_SYSTEM and not STRING_SESSION:
     raise RuntimeError("STRING_SESSION is required when LOGIN_SYSTEM=False")
 
