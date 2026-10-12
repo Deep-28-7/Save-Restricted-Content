@@ -250,6 +250,7 @@ async def show_plans(client, query):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
     await query.answer()
+	
 # cancel command
 @Client.on_message(filters.command(["cancel"]))
 async def send_cancel(client: Client, message: Message):
@@ -816,5 +817,6 @@ if __name__ == "__main__":
         broadcast,
         filters.command(["broadcast"]) & filters.user(ADMINS)
     ))
+	bot.add_handler(CallbackQueryHandler(show_plans, filters.regex("^show_plans$")))
 
     bot.run()
