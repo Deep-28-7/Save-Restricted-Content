@@ -261,6 +261,9 @@ async def send_cancel(client: Client, message: Message):
 
 @Client.on_message(filters.text & filters.private & ~filters.command(["start", "help", "cancel", "login", "logout"]))
 async def save(client: Client, message: Message):
+	# Payment access check
+    if not await db.is_user_exist(message.from_user.id):
+        await db.add_user(message.from_user.id, message.from_user.first_name)
     # Joining chat
     if ("https://t.me/+" in message.text or "https://t.me/joinchat/" in message.text) and LOGIN_SYSTEM == False:
         if BeastXUser is None:
