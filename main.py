@@ -11,7 +11,7 @@ import threading
 
 import motor.motor_asyncio
 from pyrogram import Client, filters, enums
-from pyrogram.handlers import MessageHandler
+from pyrogram.handlers import MessageHandler, CallbackQueryHandler
 from pyrogram.errors import (
     FloodWait, UserIsBlocked, InputUserDeactivated, UserAlreadyParticipant,
     InviteHashExpired, UsernameNotOccupied, InputUserDeactivated,
