@@ -66,6 +66,7 @@ class Database:
         self._client = motor.motor_asyncio.AsyncIOMotorClient(uri)
         self.db = self._client[database_name]
         self.col = self.db.users
+        self.payment_requests = self.db.payment_requests
 
     def new_user(self, id, name):
         return {"id": id, "name": name, "session": None, "api_id": None, "api_hash": None}
@@ -201,7 +202,7 @@ def progress(current, total, message, type):
 async def send_start(client: Client, message: Message):
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
- buttons = [
+    buttons = [
         [InlineKeyboardButton("📢 Join Update Channel", url="https://t.me/BankingTitanss")],
         [InlineKeyboardButton("💳 View Payment Plans", callback_data="show_plans")],
         [InlineKeyboardButton("❓ Help", callback_data="show_help")]
@@ -250,7 +251,140 @@ async def show_plans(client, query):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
     await query.answer()
-	
+
+
+@Client.on_callback_query(filters.regex(r"^pay_(20|30|50|120)$"))
+async def choose_payment_plan(client, query):
+    plan_code = query.data.replace("pay_", "plan_")
+    plan = PAYMENT_PLANS.get(plan_code)
+    if not plan:
+        await query.answer("Invalid plan.", show_alert=True)
+        return
+    if not UPI_ID:
+        await query.answer("Payment setup abhi configure nahi hua.", show_alert=True)
+        return
+
+    upi_link = (
+        f"upi://pay?pa={UPI_ID}&pn={UPI_NAME.replace(' ', '%20')}"
+        f"&am={plan['amount']}&cu=INR"
+    )
+    buttons = [
+        [InlineKeyboardButton("📲 Open UPI App", url=upi_link)],
+        [InlineKeyboardButton("✅ I Have Paid", callback_data=f"paid_{plan_code}")]
+    ]
+    await query.message.reply_text(
+        f"💳 **Payment Details**\n\n"
+        f"Plan: ₹{plan['amount']} for {plan['days']} day(s)\n"
+        f"UPI ID: `{UPI_ID}`\n\n"
+        "Payment karne ke baad **I Have Paid** dabayein. "
+        "Admin actual payment check karke approve/reject karega.",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+    await query.answer()
+
+
+@Client.on_callback_query(filters.regex(r"^paid_plan_(20|30|50|120)$"))
+async def user_says_paid(client, query):
+    plan_code = query.data.replace("paid_", "")
+    plan = PAYMENT_PLANS.get(plan_code)
+    if not plan:
+        await query.answer("Invalid plan.", show_alert=True)
+        return
+
+    user_id = int(query.from_user.id)
+    existing = await db.payment_requests.find_one({
+        "user_id": user_id, "plan_code": plan_code, "status": "pending"
+    })
+    if existing:
+        await query.answer("Aapki request pehle se pending hai.", show_alert=True)
+        return
+
+    user = query.from_user
+    await db.payment_requests.insert_one({
+        "user_id": user_id,
+        "name": user.first_name or "Unknown",
+        "username": user.username or "",
+        "plan_code": plan_code,
+        "amount": plan["amount"],
+        "days": plan["days"],
+        "status": "pending",
+        "created_at": time.time()
+    })
+    admin_buttons = [[
+        InlineKeyboardButton("✅ Approve", callback_data=f"approve_{user_id}_{plan_code}"),
+        InlineKeyboardButton("❌ Reject", callback_data=f"reject_{user_id}_{plan_code}")
+    ]]
+    await client.send_message(
+        ADMINS,
+        f"🔔 **Payment approval request**\n\n"
+        f"User: {user.first_name or 'Unknown'}\n"
+        f"User ID: `{user_id}`\n"
+        f"Username: @{user.username if user.username else 'not set'}\n"
+        f"Plan: ₹{plan['amount']} / {plan['days']} day(s)\n\n"
+        "UPI app mein actual payment verify karke action lein.",
+        reply_markup=InlineKeyboardMarkup(admin_buttons)
+    )
+    await query.message.reply_text("✅ Request admin ko bhej di gayi hai. Payment verify hone ke baad approval milega.")
+    await query.answer("Request sent.")
+
+
+@Client.on_callback_query(filters.regex(r"^(approve|reject)_\d+_plan_(20|30|50|120)$"))
+async def admin_payment_decision(client, query):
+    if int(query.from_user.id) != ADMINS:
+        await query.answer("Sirf admin ye action kar sakta hai.", show_alert=True)
+        return
+
+    action, user_id_text, plan_number = query.data.split("_", 2)[0], query.data.split("_")[1], query.data.split("_")[3]
+    user_id = int(user_id_text)
+    plan_code = f"plan_{plan_number}"
+    request = await db.payment_requests.find_one({
+        "user_id": user_id, "plan_code": plan_code, "status": "pending"
+    })
+    if not request:
+        await query.answer("Pending request nahi mili ya pehle process ho chuki hai.", show_alert=True)
+        return
+
+    if action == "approve":
+        # Conditional status update prevents the same request being approved twice.
+        result = await db.payment_requests.update_one(
+            {"_id": request["_id"], "status": "pending"},
+            {"$set": {"status": "approved", "reviewed_at": time.time()}}
+        )
+        if not result.modified_count:
+            await query.answer("Request already processed.", show_alert=True)
+            return
+        now = time.time()
+        user_record = await db.col.find_one({"id": user_id}) or {}
+        old_expiry = float(user_record.get("paid_until_ts", 0))
+        expiry_start = max(now, old_expiry)
+        paid_until = expiry_start + (PAYMENT_PLANS[plan_code]["days"] * 86400)
+        await db.col.update_one(
+            {"id": user_id},
+            {"$set": {"paid_until_ts": paid_until}},
+            upsert=True
+        )
+        await client.send_message(
+            user_id,
+            f"🎉 Payment approved! Aapka access {PAYMENT_PLANS[plan_code]['days']} day(s) ke liye active hai."
+        )
+        await query.message.edit_text(f"✅ Approved: user {user_id}, ₹{request['amount']}.")
+        await query.answer("Approved.")
+    else:
+        result = await db.payment_requests.update_one(
+            {"_id": request["_id"], "status": "pending"},
+            {"$set": {"status": "rejected", "reviewed_at": time.time()}}
+        )
+        if not result.modified_count:
+            await query.answer("Request already processed.", show_alert=True)
+            return
+        await client.send_message(
+            user_id,
+            "❌ Payment request reject kar di gayi. Agar payment ki hai, admin se contact karein."
+        )
+        await query.message.edit_text(f"❌ Rejected: user {user_id}, ₹{request['amount']}.")
+        await query.answer("Rejected.")
+
+
 # cancel command
 @Client.on_message(filters.command(["cancel"]))
 async def send_cancel(client: Client, message: Message):
@@ -262,9 +396,19 @@ async def send_cancel(client: Client, message: Message):
 
 @Client.on_message(filters.text & filters.private & ~filters.command(["start", "help", "cancel", "login", "logout"]))
 async def save(client: Client, message: Message):
-	# Payment access check
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
+
+    user_record = await db.col.find_one({"id": int(message.from_user.id)}) or {}
+    paid_until = float(user_record.get("paid_until_ts", 0))
+    if message.from_user.id != ADMINS and paid_until <= time.time():
+        buttons = [[InlineKeyboardButton("💳 View Payment Plans", callback_data="show_plans")]]
+        await message.reply_text(
+            "🔒 Access active nahi hai. Pehle plan select karke payment karein; approval ke baad access milega.",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+        return
+
     # Joining chat
     if ("https://t.me/+" in message.text or "https://t.me/joinchat/" in message.text) and LOGIN_SYSTEM == False:
         if BeastXUser is None:
@@ -817,6 +961,9 @@ if __name__ == "__main__":
         broadcast,
         filters.command(["broadcast"]) & filters.user(ADMINS)
     ))
-	bot.add_handler(CallbackQueryHandler(show_plans, filters.regex("^show_plans$")))
+    bot.add_handler(CallbackQueryHandler(show_plans, filters.regex("^show_plans$")))
+    bot.add_handler(CallbackQueryHandler(choose_payment_plan, filters.regex(r"^pay_(20|30|50|120)$")))
+    bot.add_handler(CallbackQueryHandler(user_says_paid, filters.regex(r"^paid_plan_(20|30|50|120)$")))
+    bot.add_handler(CallbackQueryHandler(admin_payment_decision, filters.regex(r"^(approve|reject)_\d+_plan_(20|30|50|120)$")))
 
     bot.run()
