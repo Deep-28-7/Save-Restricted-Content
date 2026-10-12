@@ -201,20 +201,28 @@ def progress(current, total, message, type):
 async def send_start(client: Client, message: Message):
     if not await db.is_user_exist(message.from_user.id):
         await db.add_user(message.from_user.id, message.from_user.first_name)
-    buttons = [[
-        InlineKeyboardButton("❣️ Developer", url = "https://t.me/Godmrunal")
-    ],[
-        InlineKeyboardButton('🔍 sᴜᴘᴘᴏʀᴛ ɢʀᴏᴜᴘ', url='https://t.me/Beastx_Support'),
-        InlineKeyboardButton('🤖 ᴜᴘᴅᴀᴛᴇ ᴄʜᴀɴɴᴇʟ', url='https://t.me/Beastx_Bots')
-    ]]
-    reply_markup = InlineKeyboardMarkup(buttons)
+ buttons = [
+        [InlineKeyboardButton("📢 Join Update Channel", url="https://t.me/BankingTitanss")],
+        [InlineKeyboardButton("💳 View Payment Plans", callback_data="show_plans")],
+        [InlineKeyboardButton("❓ Help", callback_data="show_help")]
+    ]
+
     await client.send_message(
-        chat_id=message.chat.id, 
-        text=f"<b>👋 Hi {message.from_user.mention}, I am Save Restricted Content Bot, I can send you restricted content by its post link.\n\nFor downloading restricted content /login first.\n\nKnow how to use bot by - /help</b>", 
-        reply_markup=reply_markup, 
+        chat_id=message.chat.id,
+        text=(
+            f"👋 Hi {message.from_user.mention}!\n\n"
+            "Welcome to Save Restricted Content Bot.\n\n"
+            "📢 First join our update channel.\n"
+            "💳 Select a payment plan to request access.\n\n"
+            "Payment plans:\n"
+            "₹20 — 1 day\n"
+            "₹30 — 2 days\n"
+            "₹50 — 7 days\n"
+            "₹120 — 30 days"
+        ),
+        reply_markup=InlineKeyboardMarkup(buttons),
         reply_to_message_id=message.id
     )
-    return
 
 
 # help command
