@@ -232,7 +232,24 @@ async def send_help(client: Client, message: Message):
         chat_id=message.chat.id, 
         text=f"{HELP_TXT}"
     )
+@Client.on_callback_query(filters.regex("^show_plans$"))
+async def show_plans(client, query):
+    buttons = [
+        [InlineKeyboardButton("₹20 - 1 Day", callback_data="pay_20")],
+        [InlineKeyboardButton("₹30 - 2 Days", callback_data="pay_30")],
+        [InlineKeyboardButton("₹50 - 7 Days", callback_data="pay_50")],
+        [InlineKeyboardButton("₹120 - 30 Days", callback_data="pay_120")]
+    ]
 
+    await query.message.reply_text(
+        "💰 **Choose Your Plan**\n\n"
+        "₹20 — 1 Day\n"
+        "₹30 — 2 Days\n"
+        "₹50 — 7 Days\n"
+        "₹120 — 30 Days",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+    await query.answer()
 # cancel command
 @Client.on_message(filters.command(["cancel"]))
 async def send_cancel(client: Client, message: Message):
